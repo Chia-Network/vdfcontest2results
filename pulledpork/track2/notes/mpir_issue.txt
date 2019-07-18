@@ -1,0 +1,186 @@
+
+The issue with mpir using 'skylake' on G4500 is the add_n and sub_n have:
+    vpblendd YMM0, YMM0, YMM0, 0  ; This one is black magic. Beware.
+which is an avx instruction.
+
+I assume the "black magic" of that vpblendd is just to force instruction
+scheduling to occur a certain way.
+
+This appears to be confirmed by looking at the comments for a similar trick
+used in: mpir-3.0.0/mpn/x86_64w/skylake/avx/add_n.asm
+    ; do not delete!
+    ; this seemingly unreasoned AVX instruction optimizes the allocation of
+    ; read/write operations to ports 2, 3 & 7 (write always ending up
+    ; on port 7) which allows a sustained 2r1w execution per cycle
+    vpor    YMM0, YMM0, YMM0
+
+Here are some tools for analysing instruction scheduling:
+
+-- IACA --
+straight from intel, supports skylake but is "end of life"
+this doesn't mean "end of usefulness", just end of updates
+this is probably the appropriate tool until a new micro-achitecture arrives
+https://software.intel.com/en-us/articles/intel-architecture-code-analyzer
+
+-- LLVM-MCA --
+aleternatively, here is llvm's tool set
+https://llvm.org/docs/CommandGuide/llvm-mca.html
+
+
+Note, intel strongly words that IACA is just a first order estimate and not
+to take it as an accurate hardware simulation. With that in mind, let's try
+some possible fixes in IACA.
+
+possible fixes:
+- switch to haswell's add_n, sub_n which do not use that instruction
+- as suggested in github, just comment out the vpblendd instruction
+
+
+$ ./iaca -arch SKL skylake_add_n.o
+Note: -arch SKX gives the same analysis here
+Surprisingly BDW does as well (although HSW differs)
+
+Throughput Analysis Report
+--------------------------
+Block Throughput: 8.00 Cycles       Throughput Bottleneck: Backend
+Loop Count:  22
+Port Binding In Cycles Per Iteration:
+--------------------------------------------------------------------------------------------------
+|  Port  |   0   -  DV   |   1   |   2   -  D    |   3   -  D    |   4   |   5   |   6   |   7   |
+--------------------------------------------------------------------------------------------------
+| Cycles |  4.0     0.0  |  2.0  |  8.0     8.0  |  8.0     8.0  |  8.0  |  2.0  |  4.0  |  8.0  |
+--------------------------------------------------------------------------------------------------
+...
+| Num Of   |                    Ports pressure in cycles                         |      |
+|  Uops    |  0  - DV    |  1   |  2  -  D    |  3  -  D    |  4   |  5   |  6   |  7   |
+-----------------------------------------------------------------------------------------
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov rax, qword ptr [rsi]
+|   2^     |             |      |             | 1.0     1.0 |      |      | 1.0  |      | adc rax, qword ptr [rdx]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi], rax
+|   1      |             | 1.0  |             |             |      |      |      |      | vpblendd ymm0, ymm0, ymm0, 0x0
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov rax, qword ptr [rsi+0x8]
+|   2^     | 1.0         |      |             | 1.0     1.0 |      |      |      |      | adc rax, qword ptr [rdx+0x8]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x8], rax
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov rax, qword ptr [rsi+0x10]
+|   2^     |             |      |             | 1.0     1.0 |      |      | 1.0  |      | adc rax, qword ptr [rdx+0x10]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x10], rax
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov rax, qword ptr [rsi+0x18]
+|   2^     | 1.0         |      |             | 1.0     1.0 |      |      |      |      | adc rax, qword ptr [rdx+0x18]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x18], rax
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov rax, qword ptr [rsi+0x20]
+|   2^     |             |      |             | 1.0     1.0 |      |      | 1.0  |      | adc rax, qword ptr [rdx+0x20]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x20], rax
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov rax, qword ptr [rsi+0x28]
+|   2^     | 1.0         |      |             | 1.0     1.0 |      |      |      |      | adc rax, qword ptr [rdx+0x28]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x28], rax
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov rax, qword ptr [rsi+0x30]
+|   2^     |             |      |             | 1.0     1.0 |      |      | 1.0  |      | adc rax, qword ptr [rdx+0x30]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x30], rax
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov rax, qword ptr [rsi+0x38]
+|   2^     | 1.0         |      |             | 1.0     1.0 |      |      |      |      | adc rax, qword ptr [rdx+0x38]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x38], rax
+|   1      |             |      |             |             |      | 1.0  |      |      | lea rsi, ptr [rsi+0x40]
+|   1      |             | 1.0  |             |             |      |      |      |      | lea rdx, ptr [rdx+0x40]
+|   1      |             |      |             |             |      | 1.0  |      |      | lea rdi, ptr [rdi+0x40]
+|   1*     |             |      |             |             |      |      |      |      | dec rcx
+|   0*F    |             |      |             |             |      |      |      |      | jnz 0xffffffffffffff86
+Total Num Of Uops: 45
+
+$ ./iaca -arch SKL haswell_add_n.o
+Note: -arch SKX gives the same analysis here
+
+Block Throughput: 8.00 Cycles       Throughput Bottleneck: Backend
+Loop Count:  22
+Port Binding In Cycles Per Iteration:
+--------------------------------------------------------------------------------------------------
+|  Port  |   0   -  DV   |   1   |   2   -  D    |   3   -  D    |   4   |   5   |   6   |   7   |
+--------------------------------------------------------------------------------------------------
+| Cycles |  4.0     0.0  |  1.5  |  8.0     8.0  |  8.0     8.0  |  8.0  |  1.5  |  4.0  |  8.0  |
+--------------------------------------------------------------------------------------------------
+...
+| Num Of   |                    Ports pressure in cycles                         |      |
+|  Uops    |  0  - DV    |  1   |  2  -  D    |  3  -  D    |  4   |  5   |  6   |  7   |
+-----------------------------------------------------------------------------------------
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov rax, qword ptr [rsi]
+|   1      |             |      |             | 1.0     1.0 |      |      |      |      | mov r8, qword ptr [rsi+0x8]
+|   2^     |             |      | 1.0     1.0 |             |      |      | 1.0  |      | adc rax, qword ptr [rdx]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi], rax
+|   2^     | 1.0         |      |             | 1.0     1.0 |      |      |      |      | adc r8, qword ptr [rdx+0x8]
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov rax, qword ptr [rsi+0x10]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x8], r8
+|   2^     |             |      |             | 1.0     1.0 |      |      | 1.0  |      | adc rax, qword ptr [rdx+0x10]
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov r8, qword ptr [rsi+0x18]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x10], rax
+|   1      |             |      |             | 1.0     1.0 |      |      |      |      | mov rax, qword ptr [rsi+0x20]
+|   2^     | 1.0         |      | 1.0     1.0 |             |      |      |      |      | adc r8, qword ptr [rdx+0x18]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x18], r8
+|   2^     |             |      |             | 1.0     1.0 |      |      | 1.0  |      | adc rax, qword ptr [rdx+0x20]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x20], rax
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov r8, qword ptr [rsi+0x28]
+|   2^     | 1.0         |      |             | 1.0     1.0 |      |      |      |      | adc r8, qword ptr [rdx+0x28]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x28], r8
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov rax, qword ptr [rsi+0x30]
+|   1      |             |      |             | 1.0     1.0 |      |      |      |      | mov r8, qword ptr [rsi+0x38]
+|   1      |             | 0.5  |             |             |      | 0.5  |      |      | lea rsi, ptr [rsi+0x40]
+|   2^     |             |      | 1.0     1.0 |             |      |      | 1.0  |      | adc rax, qword ptr [rdx+0x30]
+|   2^     | 1.0         |      |             | 1.0     1.0 |      |      |      |      | adc r8, qword ptr [rdx+0x38]
+|   1      |             | 0.5  |             |             |      | 0.5  |      |      | lea rdx, ptr [rdx+0x40]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x30], rax
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x38], r8
+|   1      |             | 0.5  |             |             |      | 0.5  |      |      | lea rdi, ptr [rdi+0x40]
+|   1*     |             |      |             |             |      |      |      |      | dec rcx
+|   0*F    |             |      |             |             |      |      |      |      | jnz 0xffffffffffffff8c
+Total Num Of Uops: 44
+
+$ ./iaca -arch SKL patch1_add_n.o
+Note: -arch SKX gives the same analysis here
+
+Block Throughput: 8.00 Cycles       Throughput Bottleneck: Backend
+Loop Count:  22
+Port Binding In Cycles Per Iteration:
+--------------------------------------------------------------------------------------------------
+|  Port  |   0   -  DV   |   1   |   2   -  D    |   3   -  D    |   4   |   5   |   6   |   7   |
+--------------------------------------------------------------------------------------------------
+| Cycles |  4.0     0.0  |  1.5  |  8.0     8.0  |  8.0     8.0  |  8.0  |  1.5  |  4.0  |  8.0  |
+--------------------------------------------------------------------------------------------------
+...
+| Num Of   |                    Ports pressure in cycles                         |      |
+|  Uops    |  0  - DV    |  1   |  2  -  D    |  3  -  D    |  4   |  5   |  6   |  7   |
+-----------------------------------------------------------------------------------------
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov rax, qword ptr [rsi]
+|   2^     |             |      |             | 1.0     1.0 |      |      | 1.0  |      | adc rax, qword ptr [rdx]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi], rax
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov rax, qword ptr [rsi+0x8]
+|   2^     | 1.0         |      |             | 1.0     1.0 |      |      |      |      | adc rax, qword ptr [rdx+0x8]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x8], rax
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov rax, qword ptr [rsi+0x10]
+|   2^     |             |      |             | 1.0     1.0 |      |      | 1.0  |      | adc rax, qword ptr [rdx+0x10]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x10], rax
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov rax, qword ptr [rsi+0x18]
+|   2^     | 1.0         |      |             | 1.0     1.0 |      |      |      |      | adc rax, qword ptr [rdx+0x18]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x18], rax
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov rax, qword ptr [rsi+0x20]
+|   2^     |             |      |             | 1.0     1.0 |      |      | 1.0  |      | adc rax, qword ptr [rdx+0x20]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x20], rax
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov rax, qword ptr [rsi+0x28]
+|   2^     | 1.0         |      |             | 1.0     1.0 |      |      |      |      | adc rax, qword ptr [rdx+0x28]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x28], rax
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov rax, qword ptr [rsi+0x30]
+|   2^     |             |      |             | 1.0     1.0 |      |      | 1.0  |      | adc rax, qword ptr [rdx+0x30]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x30], rax
+|   1      |             |      | 1.0     1.0 |             |      |      |      |      | mov rax, qword ptr [rsi+0x38]
+|   2^     | 1.0         |      |             | 1.0     1.0 |      |      |      |      | adc rax, qword ptr [rdx+0x38]
+|   2^     |             |      |             |             | 1.0  |      |      | 1.0  | mov qword ptr [rdi+0x38], rax
+|   1      |             | 0.5  |             |             |      | 0.5  |      |      | lea rsi, ptr [rsi+0x40]
+|   1      |             | 0.5  |             |             |      | 0.5  |      |      | lea rdx, ptr [rdx+0x40]
+|   1      |             | 0.5  |             |             |      | 0.5  |      |      | lea rdi, ptr [rdi+0x40]
+|   1*     |             |      |             |             |      |      |      |      | dec rcx
+|   0*F    |             |      |             |             |      |      |      |      | jnz 0xffffffffffffff8c
+Total Num Of Uops: 44
+
+Well, looks like IACA is not going to help us here, as it seems to claim they
+would all perform the same. Maybe this can at least be taken as indication
+that there will not be large differences.
+
+The only way forward is to just compare on the real machine.
+

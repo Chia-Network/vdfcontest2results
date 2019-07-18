@@ -1,0 +1,84 @@
+
+----------------------
+reference entry
+    182.63678216934204
+    182.44330859184265
+    182.8893609046936
+    182.3285186290741
+
+----------------------
+conversion from track1
+
+hacky patch
+sed -i -e 's/vpblendd/;vpblendd/' mpir-3.0.0/mpn/x86_64/skylake/add_n.as
+sed -i -e 's/vpblendd/;vpblendd/' mpir-3.0.0/mpn/x86_64/skylake/sub_n.as
+    178.47159457206726
+    178.7947063446045
+
+use haswell add_n, sub_n
+(cd mpir-3.0.0/mpn/x86_64/; cp haswell/{add,sub}_n.as skylake)
+    178.40324187278748
+    178.50450348854065
+
+fall back to sandybridge (not sure why mpir skips haswell)
+rm mpir-3.0.0/mpn/x86_64/skylake/{add,sub}_n.as
+    177.86285090446472
+    177.58984780311584
+
+fall back to haswell
+rm mpir-3.0.0/mpn/x86_64/skylake/{add,sub}_n.as
+export MPN_PATH=" x86_64/skylake x86_64/haswell x86_64/sandybridge x86_64 generic"
+    153.3711338043213
+    153.63984942436218     
+
+-----------------------
+fall back to haswell and adjust cflags
+
+Unless said otherwise, mpir will use
+"-O2 -march=corei7 -mtune=corei7"
+when manually setting CFLAGS, mpir will take it verbatim
+and not add any of O,march,mtune
+
+describe the machine as well as possible
+export CFLAGS="-O3 -march=corei7 -mtune=skylake"
+    156.45502734184265
+    156.97963619232178
+
+similar, but be less agressive with the optimization        
+export CFLAGS="-O2 -march=corei7 -mtune=skylake"
+    155.12057662010193
+
+mtune skylake worse than corei7!?
+fine, try -O3 at least
+export CFLAGS="-O3 -march=corei7 -mtune=corei7"
+    153.6381950378418
+    153.46103930473328
+    153.52674221992493
+    153.9696798324585
+
+maybe the -O3 is messing up flint and vdf,
+which probably don't need loop unrolling etc at that level
+try for mpir:
+export CFLAGS="-O3 -march=corei7 -mtune=corei7"
+for flint,vdf:
+export CFLAGS="-O2 -march=corei7 -mtune=corei7"
+    152.79987978935242
+    152.83699083328247
+
+modify mpir cflags
+export CFLAGS="-O3 -march=corei7 -mtune=skylake"
+    154.8494074344635
+    154.92141914367676
+
+okay, looks like the winner is
+for mpir:
+export CFLAGS="-O3 -march=corei7 -mtune=corei7"
+for flint,vdf:
+export CFLAGS="-O2 -march=corei7 -mtune=corei7"
+sanity check:
+    153.54289031028748
+    ... what? why aren't we getting 152 times again?
+    152.86743426322937
+    ... that's more like it, so a fluke?
+    vdf_bot went down again, calling it quits
+

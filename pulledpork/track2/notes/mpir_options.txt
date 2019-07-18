@@ -1,0 +1,44 @@
+
+MPIR result of --build options
+
+skylakeavx-pc-linux-gnu
+      CC="gcc"
+      CFLAGS="-m64 -O2 -march=skylake -mtune=skylake"
+      CPPFLAGS=""
+      MPN_PATH=" x86_64/skylake/avx x86_64/haswell/avx x86_64/skylake x86_64/haswell x86_64/sandybridge x86_64 generic"
+
+skylake-pc-linux-gnu
+      CC="gcc"
+      CFLAGS="-m64 -O2 -march=corei7 -mtune=corei7"
+      CPPFLAGS=""
+      MPN_PATH=" x86_64/skylake x86_64/sandybridge x86_64 generic"
+
+haswell-pc-linux-gnu
+      CC="gcc"
+      CFLAGS="-m64 -O2 -march=corei7-avx -mtune=corei7-avx"
+      CPPFLAGS=""
+      MPN_PATH=" x86_64/haswell/avx x86_64/haswell x86_64/sandybridge x86_64 generic"
+
+--------------------------------------------------------------------
+?? why does skylake skip haswell to sandybridge?
+
+try explicit path to override
+export MPN_PATH=" x86_64/skylake x86_64/haswell x86_64/sandybridge x86_64 generic"
+--build=skylake-pc-linux-gnu
+configure then gave:
+      CC="gcc"
+      CFLAGS="-m64 -O2 -march=corei7 -mtune=corei7"
+      CPPFLAGS=""
+      MPN_PATH=" x86_64/skylake x86_64/haswell x86_64/sandybridge x86_64 generic"
+
+Note: by manually setting CFLAGS, this does not just override those settings,
+it will cause mpir to leave out all other optimization defaults.
+Example:
+export CFLAGS="-O3"
+--build=skylake-pc-linux-gnu
+configure then gave:
+      CC="gcc"
+      CFLAGS="-O3"
+      CPPFLAGS=""
+      MPN_PATH=" x86_64/skylake x86_64/sandybridge x86_64 generic"
+

@@ -1,0 +1,199 @@
+
+Some times as reported by vdf_bot with the main difference being
+which build target is given to mpir configure.
+
+none (--build not given to configure)
+#  it appears the Xeon processors are not recognized at all by mpir config
+#  ./mpir-3.0.0/config.guess -> x86_64-unknown-linux-gnu
+  181.18451380729675
+  181.5836877822876
+
+skylakeavx-pc-linux-gnu
+  145.19951176643372
+  144.968891620636
+  144.98715543746948
+  145.20000195503235
+
+haswell-pc-linux-gnu ... expects avx support
+  146.5819890499115
+  146.57817912101746
+  146.50357961654663
+  146.32505583763123
+
+broadwell-pc-linux-gnu ... expects avx support
+  146.99944472312927
+  146.8595130443573
+  146.90475797653198
+  146.88077354431152
+
+skylake-pc-linux-gnu
+  174.17283487319946
+  174.19114756584167
+
+haswellavx-pc-linux-gnu ... oops, this isn't valid, so it went full generic
+  249.05668830871582
+  249.05963969230652
+
+skylakeavx-pc-linux-gnu ... and let mpir config choose CFLAGS
+  145.27963185310364
+  145.41501688957214
+  145.33094191551208
+  145.92914199829102  
+
+----------------------------------------------------------
+info from diagnostic runs
+
+Summary:
+Looks like hyperthreading is not disabled, and cpu frequency is not locked.
+So scheduling and scaling settings can effect the results.
+Possibly also turbo-boost settings, but I didn't look into that.
+
+Here are the machines vdf_bot is using for track1 = judge_speed
+
++ hostname
+beast
++ ./mpir-3.0.0/config.guess
+x86_64-unknown-linux-gnu
++ lscpu
+Architecture:        x86_64
+CPU op-mode(s):      32-bit, 64-bit
+Byte Order:          Little Endian
+CPU(s):              8
+On-line CPU(s) list: 0-7
+Thread(s) per core:  2
+Core(s) per socket:  4
+Socket(s):           1
+NUMA node(s):        1
+Vendor ID:           GenuineIntel
+CPU family:          6
+Model:               85
+Model name:          Intel(R) Xeon(R) W-2123 CPU @ 3.60GHz
+Stepping:            4
+CPU MHz:             1214.307
+CPU max MHz:         3600.0000
+CPU min MHz:         1200.0000
+BogoMIPS:            7200.00
+Virtualization:      VT-x
+L1d cache:           32K
+L1i cache:           32K
+L2 cache:            1024K
+L3 cache:            8448K
+NUMA node0 CPU(s):   0-7
+Flags:               fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca
+cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx
+pdpe1gb rdtscp lm constant_tsc art arch_perfmon pebs bts rep_good nopl
+xtopology nonstop_tsc cpuid aperfmperf pni pclmulqdq dtes64 monitor ds_cpl
+vmx smx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid dca sse4_1 sse4_2 x2apic
+movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm
+3dnowprefetch cpuid_fault epb cat_l3 cdp_l3 invpcid_single pti intel_ppin ssbd
+mba ibrs ibpb stibp tpr_shadow vnmi flexpriority ept vpid fsgsbase tsc_adjust
+bmi1 hle avx2 smep bmi2 erms invpcid rtm cqm mpx rdt_a avx512f avx512dq rdseed
+adx smap clflushopt clwb intel_pt avx512cd avx512bw avx512vl xsaveopt xsavec
+xgetbv1 xsaves cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local dtherm arat
+pln pts md_clear flush_l1d
+
++ hostname
+sumo
++ ./mpir-3.0.0/config.guess
+x86_64-unknown-linux-gnu
++ lscpu
+Architecture:        x86_64
+CPU op-mode(s):      32-bit, 64-bit
+Byte Order:          Little Endian
+CPU(s):              8
+On-line CPU(s) list: 0-7
+Thread(s) per core:  2
+Core(s) per socket:  4
+Socket(s):           1
+NUMA node(s):        1
+Vendor ID:           GenuineIntel
+CPU family:          6
+Model:               85
+Model name:          Intel(R) Xeon(R) W-2123 CPU @ 3.60GHz
+Stepping:            4
+CPU MHz:             1288.488
+CPU max MHz:         3600.0000
+CPU min MHz:         1200.0000
+BogoMIPS:            7200.00
+Virtualization:      VT-x
+L1d cache:           32K
+L1i cache:           32K
+L2 cache:            1024K
+L3 cache:            8448K
+NUMA node0 CPU(s):   0-7
+Flags:               fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca
+cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx
+pdpe1gb rdtscp lm constant_tsc art arch_perfmon pebs bts rep_good nopl
+xtopology nonstop_tsc cpuid aperfmperf pni pclmulqdq dtes64 monitor ds_cpl
+vmx smx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid dca sse4_1 sse4_2 x2apic
+movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm
+3dnowprefetch cpuid_fault epb cat_l3 cdp_l3 invpcid_single pti intel_ppin ssbd
+mba ibrs ibpb stibp tpr_shadow vnmi flexpriority ept vpid fsgsbase tsc_adjust
+bmi1 hle avx2 smep bmi2 erms invpcid rtm cqm mpx rdt_a avx512f avx512dq rdseed
+adx smap clflushopt clwb intel_pt avx512cd avx512bw avx512vl xsaveopt xsavec
+xgetbv1 xsaves cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local dtherm arat
+pln pts md_clear flush_l1d
+
+$ diff beast_lscpu.txt sumo_lscpu.txt 
+15c15
+< CPU MHz:             1214.307
+---
+> CPU MHz:             1288.488
+
+
+By default the freq scaling is in powersave mode for all cpus
++ cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+powersave
+...
+
+Directly setting the freq is stated as unsupported, and the only other
+option is performance mode.
+
++ cat /sys/devices/system/cpu/cpu6/cpufreq/scaling_available_governors
+performance powersave
++ cat /sys/devices/system/cpu/cpu6/cpufreq/scaling_setspeed
+<unsupported>
+
+Other stats, the last of which changes of course
+
++ cat /sys/devices/system/cpu/cpu6/cpufreq/cpuinfo_transition_latency
+0
++ cat /sys/devices/system/cpu/cpu6/cpufreq/scaling_driver
+intel_pstate
++ cat /sys/devices/system/cpu/cpu6/cpufreq/cpuinfo_max_freq
+3600000
++ cat /sys/devices/system/cpu/cpu6/cpufreq/cpuinfo_min_freq
+1200000
++ cat /sys/devices/system/cpu/cpu6/cpufreq/scaling_max_freq
+3600000
++ cat /sys/devices/system/cpu/cpu6/cpufreq/scaling_min_freq
+1200000
++ cat /sys/devices/system/cpu/cpu6/cpufreq/scaling_cur_freq
+1461718
+
+These stats make no sense to me ...
+there should be some "related/affected" cpus because hyper-threading is enabled
++ cat /sys/devices/system/cpu/cpu6/cpufreq/related_cpus
+6
+
+If the scaling_governor is set to performance, whatever reset is done between
+vdf_bot runs resets the scaling_governor back to powersave.
+
+After setting the scaling_governor to performance, cpufreq still does not
+appear to be locked at max. Its likely there is a lot here I still need
+to learn.
+
++ echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor 
++ sleep 10 # to check if setting "sticks"
++ cat /sys/devices/system/cpu/cpu6/cpufreq/scaling_governor
+performance
++ cat /sys/devices/system/cpu/cpu6/cpufreq/related_cpus
+6
++ cat /sys/devices/system/cpu/cpu6/cpufreq/scaling_cur_freq
+1278437
++ lscpu | grep Hz
+Model name:          Intel(R) Xeon(R) W-2123 CPU @ 3.60GHz
+CPU MHz:             1624.997
+CPU max MHz:         3600.0000
+CPU min MHz:         1200.0000
+
